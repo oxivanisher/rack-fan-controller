@@ -89,3 +89,17 @@ def test_load_rejects_fan_group_with_no_tach_pins(tmp_path):
     )
     with pytest.raises(ValueError, match="intake"):
         config_mod.load(str(path))
+
+
+def test_load_accepts_more_than_two_tach_pins_per_group(tmp_path):
+    # No upper bound on fans per group — see WIRING.md "Scaling to 3+ fans
+    # per group". 3 fans sharing one PWM line, one tach GPIO each.
+    path = _write_config(
+        tmp_path,
+        fan_groups={
+            "intake": {"pwm_pin": 15, "tach_pins": [14, 13, 18]},
+            "exhaust": {"pwm_pin": 17, "tach_pins": [16, 12, 19]},
+        },
+    )
+    cfg = config_mod.load(str(path))
+    assert len(cfg["fan_groups"]["intake"]["tach_pins"]) == 3

@@ -39,12 +39,14 @@ re-deriving the design decisions below.
   environment would otherwise induce on an LM35's analog line. AM2302/AM2320
   were ruled out — they're humidity+temp combo sensors, no benefit here, and
   slower/less reliable to poll than 1-Wire.
-- **Both fans in a pair share ONE PWM line.** PWM inputs on PC fans are
+- **All fans in a group share ONE PWM line.** PWM inputs on PC fans are
   high-impedance logic lines, not a driven load — safe to tie together.
-  Reduces GPIO usage from 4 to 2 for PWM.
+  Reduces GPIO usage regardless of group size (currently 2 fans/group, but
+  `FanGroup`/`config.json` support 3+ per group with no code changes — see
+  `docs/WIRING.md` "Scaling to 3+ fans per group").
 - **Tach lines are NOT shared** — each fan gets its own tach GPIO + pull-up.
   Tach outputs are open-collector; combining two fans' tach lines produces
-  garbage pulse counts. 4 separate tach GPIOs are used so each fan's RPM is
+  garbage pulse counts. One tach GPIO per physical fan so each fan's RPM is
   individually readable (useful for spotting a fan starting to degrade, even
   though active stall-detection logic was explicitly descoped for v1 — see
   below).

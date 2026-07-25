@@ -129,3 +129,15 @@ def test_tach_counter_resets_count_after_read():
 def test_fan_group_read_rpms_returns_one_value_per_tach_pin():
     fg = FanGroup("intake", pwm_pin=15, tach_pins=[14, 13])
     assert fg.read_rpms() == [0, 0]
+
+
+def test_fan_group_supports_more_than_two_fans_per_group():
+    # tach_pins is a plain list consumed generically — 3 fans (or more) on
+    # one shared PWM line works with zero code changes, only extra wiring
+    # (one more tach GPIO + pull-up) and config.json entries. See WIRING.md
+    # "Scaling to 3+ fans per group".
+    fg = FanGroup("intake", pwm_pin=15, tach_pins=[14, 13, 18])
+    assert len(fg.read_rpms()) == 3
+
+    fg.set_duty_percent(70)
+    assert fg._pwm.duty_u16() == duty_percent_to_u16(70)  # still one shared PWM line
