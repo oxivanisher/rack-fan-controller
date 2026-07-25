@@ -26,11 +26,34 @@ class FakeDS18X20:
         return self._temps[sensors_mod.rom_to_str(rom)]
 
 
-def _make_sensors(monkeypatch, rom_map, discovered_rom_strs, temps_by_rom):
+class FlakyDS18X20(FakeDS18X20):
+    """Like FakeDS18X20, but read_temp raises for any rom currently listed
+    in self.fail_roms (mutable between read_all() calls)."""
+
+    def __init__(self, discovered_rom_strs, temps_by_rom):
+        super().__init__(discovered_rom_strs, temps_by_rom)
+        self.fail_roms = set()
+
+    def read_temp(self, rom):
+        rom_str = sensors_mod.rom_to_str(rom)
+        if rom_str in self.fail_roms:
+            raise onewire_mod.OneWireError("CRC error")
+        return self._temps[rom_str]
+
+
+def _make_sensors(monkeypatch, rom_map, discovered_rom_strs, temps_by_rom, stale_after_s=30):
     fake = FakeDS18X20(discovered_rom_strs, temps_by_rom)
     monkeypatch.setattr(onewire_mod, "OneWire", lambda pin: pin)
     monkeypatch.setattr(ds18x20_mod, "DS18X20", lambda onewire: fake)
-    return sensors_mod.TempSensors(onewire_pin=4, rom_map=rom_map)
+    return sensors_mod.TempSensors(onewire_pin=4, rom_map=rom_map, stale_after_s=stale_after_s)
+
+
+def _make_flaky_sensors(monkeypatch, rom_map, discovered_rom_strs, temps_by_rom, stale_after_s=30):
+    fake = FlakyDS18X20(discovered_rom_strs, temps_by_rom)
+    monkeypatch.setattr(onewire_mod, "OneWire", lambda pin: pin)
+    monkeypatch.setattr(ds18x20_mod, "DS18X20", lambda onewire: fake)
+    ts = sensors_mod.TempSensors(onewire_pin=4, rom_map=rom_map, stale_after_s=stale_after_s)
+    return ts, fake
 
 
 def test_round_trips_rom_bytes_helper_against_rom_to_str():
@@ -89,3 +112,45 @@ def test_last_by_rom_empty_before_first_read(monkeypatch):
     )
 
     assert ts.last_by_rom == {}
+
+
+def test_transient_read_failure_falls_back_to_last_good_value(monkeypatch, capsys):
+    rom_map = {"rack": "28-000001a2b3c4"}
+    ts, fake = _make_flaky_sensors(
+        monkeypatch,
+        rom_map,
+        discovered_rom_strs=["28-000001a2b3c4"],
+        temps_by_rom={"28-000001a2b3c4": 32.4},
+        stale_after_s=30,
+    )
+
+    assert ts.read_all() == {"rack": 32.4}  # good reading, cached
+
+    fake.fail_roms.add("28-000001a2b3c4")
+    named = ts.read_all()  # this read fails a CRC check on the bus
+
+    assert named == {"rack": 32.4}  # served from cache, not dropped
+    assert "using cached value" in capsys.readouterr().out.lower()
+
+
+def test_read_failure_drops_once_cache_exceeds_stale_after_s(monkeypatch):
+    import time as time_mod
+
+    rom_map = {"rack": "28-000001a2b3c4"}
+    ts, fake = _make_flaky_sensors(
+        monkeypatch,
+        rom_map,
+        discovered_rom_strs=["28-000001a2b3c4"],
+        temps_by_rom={"28-000001a2b3c4": 32.4},
+        stale_after_s=30,
+    )
+
+    assert ts.read_all() == {"rack": 32.4}
+
+    fake.fail_roms.add("28-000001a2b3c4")
+    real_ticks_ms = time_mod.ticks_ms
+    monkeypatch.setattr(time_mod, "ticks_ms", lambda: real_ticks_ms() + 31_000)
+
+    named = ts.read_all()  # still failing, but cache is now older than stale_after_s
+
+    assert named == {"rack": None}

@@ -68,7 +68,7 @@ def main():
     sensors = TempSensors(cfg["sensors"]["onewire_pin"], {
         "rack": cfg["sensors"]["rack"],
         "outside": cfg["sensors"]["outside"],
-    })
+    }, stale_after_s=cfg["sensors"].get("stale_after_s", 30))
 
     # 4. MQTT publisher (lazy-connects on first publish attempt)
     publisher = mqtt_client.StatusPublisher(cfg["mqtt"])

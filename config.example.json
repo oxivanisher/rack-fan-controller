@@ -22,7 +22,8 @@
   "sensors": {
     "onewire_pin": 4,
     "rack": "28-000001a2b3c4",
-    "outside": "28-000005d6e7f8"
+    "outside": "28-000005d6e7f8",
+    "stale_after_s": 30
   },
   "curve": {
     "min_temp": 30,

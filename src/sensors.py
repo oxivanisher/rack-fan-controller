@@ -26,14 +26,21 @@ def rom_to_str(rom_bytes):
 
 
 class TempSensors:
-    def __init__(self, onewire_pin, rom_map):
+    def __init__(self, onewire_pin, rom_map, stale_after_s=30):
         """
         onewire_pin: GPIO number for the shared 1-Wire bus
         rom_map: dict like {"rack": "28-000001a2b3c4", "outside": "28-..."}
+        stale_after_s: a ROM that fails to read (CRC error, bus glitch) keeps
+            reporting its last good value for up to this long before it's
+            treated as actually missing. 1-Wire buses in a fan-noisy rack
+            drop the occasional read; without this, a single bad read would
+            flash '-' on the status page and trip compute_duty's fail-safe
+            to max_duty.
         """
         self._ow = onewire.OneWire(Pin(onewire_pin))
         self._ds = ds18x20.DS18X20(self._ow)
         self._rom_by_name = {}
+        self._stale_after_ms = stale_after_s * 1000
 
         self._discovered_roms = self._ds.scan()
         discovered_str = {rom_to_str(r): r for r in self._discovered_roms}
@@ -49,6 +56,7 @@ class TempSensors:
             self._rom_by_name[name] = discovered_str[rom_str]
 
         self.last_by_rom = {}  # {rom_str: celsius}, refreshed each read_all()
+        self._last_good = {}  # {rom_str: (celsius, ticks_ms of that reading)}
 
     def read_all(self):
         """Trigger one conversion and return {name: celsius} for configured,
@@ -66,12 +74,24 @@ class TempSensors:
         self._ds.convert_temp()
         time.sleep_ms(750)
 
+        now = time.ticks_ms()
         by_rom = {}
         for rom in self._discovered_roms:
+            rom_str = rom_to_str(rom)
             try:
-                by_rom[rom_to_str(rom)] = self._ds.read_temp(rom)
+                temp = self._ds.read_temp(rom)
+                if temp is None or temp is False:
+                    raise ValueError("no reading")
+                by_rom[rom_str] = temp
+                self._last_good[rom_str] = (temp, now)
             except Exception as e:
-                print("Failed reading sensor %s: %s" % (rom_to_str(rom), e))
+                cached = self._last_good.get(rom_str)
+                if cached is not None and time.ticks_diff(now, cached[1]) <= self._stale_after_ms:
+                    by_rom[rom_str] = cached[0]
+                    print("Sensor %s read failed (%s), using cached value %.1f" %
+                          (rom_str, e, cached[0]))
+                else:
+                    print("Failed reading sensor %s: %s" % (rom_str, e))
         self.last_by_rom = by_rom
 
         return {

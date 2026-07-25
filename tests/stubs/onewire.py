@@ -6,6 +6,10 @@ just needs to exist and be constructible.
 """
 
 
+class OneWireError(Exception):
+    pass
+
+
 class OneWire:
     def __init__(self, pin):
         self.pin = pin

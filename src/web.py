@@ -103,6 +103,9 @@ _PAGE_HTML = """<!DOCTYPE html>
   .unconfigured { color: #b45309; }
   .configured { color: #6b7280; }
   code { font-size: 0.9em; }
+  .slider-row { display: flex; align-items: center; gap: 0.6em; margin: 0.5em 0; }
+  .slider-row input[type=range] { flex: 1; }
+  .slider-row span { min-width: 3em; text-align: right; }
 </style>
 </head>
 <body>
@@ -148,27 +151,64 @@ async function fetchStatus() {
   }
 
   const container = document.getElementById('groups');
+  // Skip rebuilding a group whose slider the user is currently dragging,
+  // so the poll doesn't yank the handle back mid-drag.
+  if (draggingGroup) {
+    const existing = document.getElementById('group-' + draggingGroup);
+    if (existing) {
+      for (const [name, g] of Object.entries(data.groups)) {
+        if (name === draggingGroup) continue;
+        renderGroup(container, name, g);
+      }
+      return;
+    }
+  }
   container.innerHTML = '';
   for (const [name, g] of Object.entries(data.groups)) {
-    const div = document.createElement('div');
+    renderGroup(container, name, g);
+  }
+}
+
+function renderGroup(container, name, g) {
+  let div = document.getElementById('group-' + name);
+  if (!div) {
+    div = document.createElement('div');
+    div.id = 'group-' + name;
     div.className = 'group';
-    const overrideText = g.override
-      ? `<span class="override-badge">OVERRIDE ${g.override.duty}% (${g.override.expires_in_s}s left)</span>`
-      : 'auto';
-    div.innerHTML = `
-      <h2>${name}</h2>
-      <div class="row"><span>Duty</span><span>${g.duty}%</span></div>
-      <div class="row"><span>RPM</span><span>${g.rpm.join(' / ')}</span></div>
-      <div class="row"><span>Mode</span><span>${overrideText}</span></div>
-      <div>
-        <button onclick="setOverride('${name}', 0)">0%</button>
-        <button onclick="setOverride('${name}', 50)">50%</button>
-        <button onclick="setOverride('${name}', 100)">100%</button>
-        <button onclick="cancelOverride('${name}')">Auto</button>
-      </div>
-    `;
     container.appendChild(div);
   }
+  const overrideText = g.override
+    ? `<span class="override-badge">OVERRIDE ${g.override.duty}% (${g.override.expires_in_s}s left)</span>`
+    : 'auto';
+  const sliderValue = g.override ? g.override.duty : g.duty;
+  div.innerHTML = `
+    <h2>${name}</h2>
+    <div class="row"><span>Duty</span><span>${g.duty}%</span></div>
+    <div class="row"><span>RPM</span><span>${g.rpm.join(' / ')}</span></div>
+    <div class="row"><span>Mode</span><span>${overrideText}</span></div>
+    <div class="slider-row">
+      <input type="range" min="0" max="100" value="${sliderValue}"
+        oninput="onSliderInput('${name}', this.value)"
+        onchange="onSliderChange('${name}', this.value)"
+        onpointerdown="draggingGroup='${name}'"
+        onpointerup="draggingGroup=null">
+      <span id="slider-label-${name}">${sliderValue}%</span>
+    </div>
+    <div>
+      <button onclick="cancelOverride('${name}')">Auto</button>
+    </div>
+  `;
+}
+
+let draggingGroup = null;
+
+function onSliderInput(group, value) {
+  document.getElementById('slider-label-' + group).textContent = value + '%';
+}
+
+function onSliderChange(group, value) {
+  draggingGroup = null;
+  setOverride(group, parseInt(value, 10));
 }
 
 async function setOverride(group, duty) {
