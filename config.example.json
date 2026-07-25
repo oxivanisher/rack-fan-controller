@@ -33,12 +33,12 @@
   },
   "fan_groups": {
     "intake": {
-      "pwm_pin": 15,
-      "tach_pins": [14, 13]
+      "pwm_pin": 21,
+      "tach_pins": [20, 19, 18]
     },
     "exhaust": {
-      "pwm_pin": 17,
-      "tach_pins": [16, 12]
+      "pwm_pin": 28,
+      "tach_pins": [27, 26, 22]
     }
   },
   "override_defaults": {

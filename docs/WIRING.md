@@ -3,31 +3,32 @@
 All pin numbers below are the defaults used in `config.example.json` and
 referenced in the code. Change both consistently if you rewire.
 
-The base build is 2 fans per group (4 fans total). The software already
-supports 3 (or more) fans per group with **zero code changes** — see
-"Scaling to 3+ fans per group" below. This doc covers wiring for both the
-base 2-fan build and the 3-fan expansion.
+This build wires 3 fans per group (6 fans total). The software supports any
+number of fans per group with **zero code changes** — see "Scaling beyond 3
+fans per group" below.
 
 ## Pinout summary (Pico W)
 
 | Signal | GPIO | Notes |
 |---|---|---|
 | 1-Wire bus (both DS18B20s) | GP4 | 4.7kΩ pull-up to 3.3V, shared by both sensors |
-| Intake PWM (all intake fans) | GP15 | Direct to fan PWM pin, no level shifting needed |
-| Intake fan 1 tach | GP14 | 4.7kΩ pull-up to **3.3V** (not 12V!) |
-| Intake fan 2 tach | GP13 | 4.7kΩ pull-up to **3.3V** |
-| Intake fan 3 tach *(optional)* | GP18 | Only needed if you add a 3rd intake fan |
-| Exhaust PWM (all exhaust fans) | GP17 | Direct to fan PWM pin |
-| Exhaust fan 1 tach | GP16 | 4.7kΩ pull-up to **3.3V** |
-| Exhaust fan 2 tach | GP12 | 4.7kΩ pull-up to **3.3V** |
-| Exhaust fan 3 tach *(optional)* | GP19 | Only needed if you add a 3rd exhaust fan |
+| Intake PWM (all intake fans) | GP21 | Direct to fan PWM pin, no level shifting needed |
+| Intake fan 1 tach | GP20 | 4.7kΩ pull-up to **3.3V** (not 12V!) |
+| Intake fan 2 tach | GP19 | 4.7kΩ pull-up to **3.3V** |
+| Intake fan 3 tach | GP18 | 4.7kΩ pull-up to **3.3V** |
+| Exhaust PWM (all exhaust fans) | GP28 | Direct to fan PWM pin |
+| Exhaust fan 1 tach | GP27 | 4.7kΩ pull-up to **3.3V** |
+| Exhaust fan 2 tach | GP26 | 4.7kΩ pull-up to **3.3V** |
+| Exhaust fan 3 tach | GP22 | 4.7kΩ pull-up to **3.3V** |
 | Pico power (VBUS) | — | Fed from 12V→5V buck converter output |
 
 Adjust to taste — these just need to stay in sync with `config.json`. When
 picking your own GPIOs (e.g. wiring a 4th fan per group later), avoid
 **GP23, GP24, GP25, GP29** — on the Pico *W* specifically these are tied up
 by the wireless chip / VSYS monitoring / onboard LED, not general-purpose.
-Any other GPIO is fair game.
+Any other GPIO is fair game (GP26–28 double as ADC pins, but that only
+matters if something else needs the ADC — plain digital PWM/tach use is
+unaffected).
 
 ## Per-fan (4-pin) wiring
 
@@ -85,31 +86,32 @@ Concretely, per group:
 - Pins 3 (tach) of every fan in the group → **kept separate** → one Pico
   GPIO each, each with its own 4.7kΩ pull-up to 3.3V.
 
-## Scaling to 3+ fans per group
+## Scaling beyond 3 fans per group
 
-Nothing in the code assumes exactly 2 fans per group — `fans.py`'s
+Nothing in the code assumes a fixed number of fans per group — `fans.py`'s
 `FanGroup` and `config.py`'s validation both treat `tach_pins` as a plain
 list of any length, and every fan in the group already shares one PWM line
-by design (see "Per-fan wiring" above). Going from 2 to 3 fans (or more,
-later) is wiring + config only:
+by design (see "Per-fan wiring" above). Adding a 4th fan (or more, later)
+is wiring + config only:
 
-1. Wire the 3rd fan's PWM (blue) into the same tied-together bundle as the
+1. Wire the 4th fan's PWM (blue) into the same tied-together bundle as the
    other fans in that group — no new GPIO needed.
-2. Give the 3rd fan's tach (green) its own new Pico GPIO + 4.7kΩ pull-up to
-   3.3V (e.g. GP18 for intake, GP19 for exhaust — see pinout table above).
+2. Give the 4th fan's tach (green) its own new Pico GPIO + 4.7kΩ pull-up to
+   3.3V (e.g. GP16 for intake, GP15 for exhaust — any free GPIO other than
+   the reserved GP23/24/25/29 works).
 3. Add that GPIO number to the group's `tach_pins` array in `config.json`:
 
    ```json
    "fan_groups": {
-     "intake": {"pwm_pin": 15, "tach_pins": [14, 13, 18]},
-     "exhaust": {"pwm_pin": 17, "tach_pins": [16, 12, 19]}
+     "intake": {"pwm_pin": 21, "tach_pins": [20, 19, 18]},
+     "exhaust": {"pwm_pin": 28, "tach_pins": [27, 26, 22]}
    }
    ```
 
-4. Reboot. `GET /status` will now show 3 RPM readings for that group.
+4. Reboot. `GET /status` will now show 4 RPM readings for that group.
 
 That's it — no changes to `main.py`, `fans.py`, `web.py`, etc. The same
-pattern extends to a 4th, 5th, ... fan per group later: one more tach GPIO
+pattern extends to a 5th, 6th, ... fan per group later: one more tach GPIO
 + pull-up, one more entry in `tach_pins`, avoiding the reserved GP23/24/25/
 29. The only real ceiling is available GPIOs and how many fans you can
 usefully drive off one PWM/12V rail — the Pico W has 26 usable GPIOs, so
