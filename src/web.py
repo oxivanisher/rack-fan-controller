@@ -7,6 +7,7 @@ microdot is not vendored in this repo — see README.md "Dependencies".
 """
 
 from microdot import Microdot, Response
+import microdot.microdot as _microdot_impl
 import json
 
 app = Microdot()
@@ -15,6 +16,27 @@ Response.default_content_type = "application/json"
 # Populated by main.py before starting the server.
 _fan_groups = {}
 _get_status = None
+
+# microdot dumps a full traceback for every request line/header it can't
+# parse (handle_request's bare except). The common cause on a LAN device is
+# a browser retrying https:// against this plain-http server before falling
+# back - the TLS ClientHello has no newline, so it blows past max_readline
+# and raises ValueError("line too long"). That's harmless and expected, so
+# swallow just that case down to one line; anything else still gets the
+# full traceback for debugging.
+_orig_print_exception = _microdot_impl.print_exception
+
+
+def _print_exception(exc):
+    if isinstance(exc, ValueError) and str(exc) == "line too long":
+        print("web: dropped an unparsable request line (likely a browser "
+              "trying https:// against this http-only server) - retry with "
+              "http://<host>")
+        return
+    _orig_print_exception(exc)
+
+
+_microdot_impl.print_exception = _print_exception
 
 
 def init(fan_groups, get_status_fn):
