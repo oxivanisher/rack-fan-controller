@@ -131,14 +131,70 @@ override state per fan group:
 {
   "rack_temp": 32.4,
   "outside_temp": 21.1,
-  "intake": {"duty": 65, "rpm": [1340, 1355], "override": null},
-  "exhaust": {"duty": 65, "rpm": [1290, 1310],
-              "override": {"duty": 0, "expires_in_s": 341}}
+  "groups": {
+    "intake": {"duty": 65, "rpm": [1340, 1355], "override": null},
+    "exhaust": {"duty": 65, "rpm": [1290, 1310],
+                "override": {"duty": 0, "expires_in_s": 341}}
+  },
+  "detected_sensors": [
+    {"rom": "28-000001a2b3c4", "temp": 32.4, "configured": true},
+    {"rom": "28-000005d6e7f8", "temp": 21.1, "configured": true}
+  ]
 }
 ```
 
 `POST /override` — body `{"group": "exhaust", "duty": 0, "duration_s": 600}`
 `POST /override/cancel` — body `{"group": "exhaust"}`
+
+## Sensor discovery
+
+`sensors.rack` / `sensors.outside` in `config.json` must be the DS18B20 ROM
+codes of your physical sensors. Since the rack usually isn't reachable for a
+REPL/USB session, discovery doesn't require one: the 1-Wire bus is scanned
+on every boot regardless of what's configured, and **every** ROM code seen —
+matched to a config entry or not — is published live in `detected_sensors`
+(status page and MQTT). A configured ROM that isn't found is a boot-time
+warning, not a crash.
+
+Workflow: boot with placeholder/empty ROM codes, open the status page, note
+the ROM codes under "Detected 1-Wire sensors", touch a physical sensor and
+watch which live temp reading moves to tell rack from outside, paste the
+codes into `config.json`, reboot.
+
+If `sensors.rack`'s ROM isn't currently matched, the control loop has no
+temperature signal to act on and fails safe to `max_duty` (loud is a safer
+failure mode than silently underventilating) — see `main.py`.
+
+## Testing
+
+This targets MicroPython on a Pico W — it does not run on a desktop, and
+the PyCharm MicroPython plugin only gives stub-based autocomplete plus a
+REPL/upload connection to a *physically attached* board. There is no
+Windows/PyCharm way to actually execute `main.py` without a Pico.
+
+What `tests/` gives you instead: `machine`, `onewire`, `ds18x20`, and
+`network` don't exist outside MicroPython, so `tests/stubs/` provides
+minimal stand-ins (added to `sys.path` by `tests/conftest.py`) purely so
+`src/` modules can be *imported* under CPython. `microdot` (a real runtime
+dependency, not a stub — see "Dependencies" above) happens to also run
+under plain CPython, so `web.py`'s actual route handlers are exercised
+through microdot's own `test_client`, not reimplemented.
+
+This validates: curve/hysteresis math, override lifecycle and expiry,
+config validation, sensor ROM matching/discovery, status JSON shape, and
+the web API's request handling and validation.
+
+This does **not** validate, and cannot: real PWM signal quality, actual
+tach pulse counts against physical fans, real 1-Wire bus timing/CRC, or
+real WiFi/MQTT behavior. Flashing to the actual board remains the final
+integration test.
+
+Setup (uses the project's `.venv`, not the system Python):
+
+```
+.venv\Scripts\pip install -r requirements-test.txt
+.venv\Scripts\python -m pytest
+```
 
 ## Not yet built / open follow-ups
 

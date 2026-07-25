@@ -114,3 +114,15 @@ def compute_curve_duty(temp, curve_cfg, last_duty, last_temp_for_hysteresis):
         duty = min_d + frac * (max_d - min_d)
 
     return duty, temp
+
+
+def compute_duty(control_temp, curve_cfg, last_duty, last_temp_for_hysteresis):
+    """compute_curve_duty, plus the fail-safe for a missing control reading.
+
+    control_temp is None when the configured control sensor's ROM hasn't
+    been matched on the bus yet (see sensors.py) — there's no signal to
+    ramp against, so fail safe to max_duty rather than guessing quietly.
+    """
+    if control_temp is None:
+        return curve_cfg["max_duty"], None
+    return compute_curve_duty(control_temp, curve_cfg, last_duty, last_temp_for_hysteresis)

@@ -76,6 +76,11 @@ _PAGE_HTML = """<!DOCTYPE html>
   .row { display: flex; justify-content: space-between; margin: 0.3em 0; }
   button { padding: 0.4em 0.8em; margin-right: 0.3em; }
   .override-badge { color: #b45309; font-weight: bold; }
+  table { width: 100%; border-collapse: collapse; }
+  td, th { text-align: left; padding: 0.2em 0.4em; }
+  .unconfigured { color: #b45309; }
+  .configured { color: #6b7280; }
+  code { font-size: 0.9em; }
 </style>
 </head>
 <body>
@@ -85,12 +90,40 @@ _PAGE_HTML = """<!DOCTYPE html>
 
 <div id="groups"></div>
 
+<div class="group">
+  <h2>Detected 1-Wire sensors</h2>
+  <p>Every DS18B20 seen on the bus, live. Unconfigured ROMs are highlighted
+  — touch a physical sensor and watch which temp moves to identify it, then
+  paste its ROM code into <code>config.json</code> under
+  <code>sensors.rack</code> / <code>sensors.outside</code> and reboot.</p>
+  <table>
+    <thead><tr><th>ROM</th><th>Temp</th><th>Status</th></tr></thead>
+    <tbody id="detected_sensors"></tbody>
+  </table>
+</div>
+
 <script>
+function fmtTemp(t) {
+  return (t === null || t === undefined) ? '—' : t.toFixed(1) + ' C';
+}
+
 async function fetchStatus() {
   const res = await fetch('/status');
   const data = await res.json();
-  document.getElementById('rack_temp').textContent = data.rack_temp.toFixed(1) + ' C';
-  document.getElementById('outside_temp').textContent = data.outside_temp.toFixed(1) + ' C';
+  document.getElementById('rack_temp').textContent = fmtTemp(data.rack_temp);
+  document.getElementById('outside_temp').textContent = fmtTemp(data.outside_temp);
+
+  const sensorsBody = document.getElementById('detected_sensors');
+  sensorsBody.innerHTML = '';
+  for (const s of (data.detected_sensors || [])) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><code>${s.rom}</code></td>
+      <td>${fmtTemp(s.temp)}</td>
+      <td class="${s.configured ? 'configured' : 'unconfigured'}">${s.configured ? 'configured' : 'unassigned'}</td>
+    `;
+    sensorsBody.appendChild(tr);
+  }
 
   const container = document.getElementById('groups');
   container.innerHTML = '';

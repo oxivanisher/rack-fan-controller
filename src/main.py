@@ -10,12 +10,12 @@ from machine import WDT
 import config as config_mod
 import boot
 from sensors import TempSensors
-from fans import FanGroup, compute_curve_duty
+from fans import FanGroup, compute_duty
 import mqtt_client
 import web
 
 
-def build_status(cfg, temps, fan_groups):
+def build_status(cfg, temps, sensors, fan_groups):
     groups_out = {}
     for name, fg in fan_groups.items():
         override = None
@@ -30,10 +30,22 @@ def build_status(cfg, temps, fan_groups):
             "override": override,
         }
 
+    # ROM codes actually configured (matched or not), so the status page can
+    # tell you which detected ROMs are still unassigned.
+    configured_roms = {cfg["sensors"]["rack"], cfg["sensors"]["outside"]}
+
     return {
         "rack_temp": temps.get(cfg["control_sensor"]),
         "outside_temp": temps.get("outside"),
         "groups": groups_out,
+        # {rom_str: celsius} for every DS18B20 seen on the bus, matched or
+        # not — lets you read ROM codes + live temps off the status page
+        # when the rack isn't physically reachable for a REPL. See
+        # sensors.py and README.md "Sensor discovery".
+        "detected_sensors": [
+            {"rom": rom, "temp": temp, "configured": rom in configured_roms}
+            for rom, temp in sensors.last_by_rom.items()
+        ],
     }
 
 
@@ -91,7 +103,7 @@ def main():
             temps = sensors.read_all()
             control_temp = temps.get(cfg["control_sensor"])
 
-            new_duty, last_temp_for_hysteresis = compute_curve_duty(
+            new_duty, last_temp_for_hysteresis = compute_duty(
                 control_temp, cfg["curve"], last_duty, last_temp_for_hysteresis
             )
             last_duty = new_duty
@@ -102,7 +114,7 @@ def main():
                 else:
                     fg.set_duty_percent(new_duty)
 
-            status = build_status(cfg, temps, fan_groups)
+            status = build_status(cfg, temps, sensors, fan_groups)
             status_holder["status"] = status
 
             # Best-effort publish; never allowed to raise past this point.

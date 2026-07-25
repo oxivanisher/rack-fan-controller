@@ -45,10 +45,14 @@ For each pair (intake, exhaust):
 - All DS18B20 DATA → single Pico GPIO (GP4), with one 4.7kΩ pull-up resistor
   from that GPIO to 3.3V (one resistor total for the whole bus, not per
   sensor)
-- Each sensor has a unique factory-programmed 64-bit ROM code — read these
-  once during setup (a short MicroPython snippet using `onewire.scan()` will
-  print them) and put them into `config.json` under `sensors.rack` /
-  `sensors.outside`.
+- Each sensor has a unique factory-programmed 64-bit ROM code. The bus is
+  scanned on every boot regardless of what's in `config.json`; ROM codes
+  that don't match a configured sensor still show up, live, in
+  `GET /status` -> `detected_sensors` (and on the web status page) rather
+  than crashing startup. If the rack isn't physically reachable for a REPL,
+  read the ROM codes off the status page instead: touch a sensor and watch
+  which reading moves to tell rack from outside, then paste the codes into
+  `config.json` under `sensors.rack` / `sensors.outside` and reboot.
 - If the "outside" sensor has a long cable run out of the enclosure, prefer
   shielded or twisted-pair cable if available — 1-Wire is somewhat sensitive
   to noise on long unshielded runs. Not critical at typical workshop
