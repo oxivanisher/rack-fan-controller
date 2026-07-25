@@ -1,0 +1,48 @@
+{
+  "wifi": {
+    "ssid": "YOUR_WIFI_SSID",
+    "password": "YOUR_WIFI_PASSWORD"
+  },
+  "mqtt": {
+    "enabled": true,
+    "broker": "192.168.1.10",
+    "port": 1883,
+    "client_id": "rack-fan-controller",
+    "topic": "rack/status",
+    "username": null,
+    "password": null,
+    "reconnect_min_interval_s": 15
+  },
+  "web": {
+    "enabled": true,
+    "port": 80
+  },
+  "poll_interval_s": 5,
+  "control_sensor": "rack",
+  "sensors": {
+    "onewire_pin": 4,
+    "rack": "28-000001a2b3c4",
+    "outside": "28-000005d6e7f8"
+  },
+  "curve": {
+    "min_temp": 30,
+    "max_temp": 35,
+    "min_duty": 20,
+    "max_duty": 100,
+    "hysteresis": 0.5
+  },
+  "fan_groups": {
+    "intake": {
+      "pwm_pin": 15,
+      "tach_pins": [14, 13]
+    },
+    "exhaust": {
+      "pwm_pin": 17,
+      "tach_pins": [16, 12]
+    }
+  },
+  "override_defaults": {
+    "max_duration_s": 3600
+  },
+  "watchdog_timeout_ms": 8000
+}

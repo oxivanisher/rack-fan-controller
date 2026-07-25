@@ -1,0 +1,142 @@
+"""Status page + override API, built on microdot.
+
+Reads/writes the same in-memory state main.py owns (a dict of FanGroup
+objects and a get_status() callable) rather than maintaining its own copy.
+
+microdot is not vendored in this repo — see README.md "Dependencies".
+"""
+
+from microdot import Microdot, Response
+import json
+
+app = Microdot()
+Response.default_content_type = "application/json"
+
+# Populated by main.py before starting the server.
+_fan_groups = {}
+_get_status = None
+
+
+def init(fan_groups, get_status_fn):
+    global _fan_groups, _get_status
+    _fan_groups = fan_groups
+    _get_status = get_status_fn
+
+
+@app.route("/status", methods=["GET"])
+def status(request):
+    return _get_status()
+
+
+@app.route("/override", methods=["POST"])
+def set_override(request):
+    body = request.json
+    group_name = body.get("group")
+    duty = body.get("duty")
+    duration_s = body.get("duration_s")
+
+    if group_name not in _fan_groups:
+        return {"error": "unknown group %s" % group_name}, 400
+    if not isinstance(duty, (int, float)) or not (0 <= duty <= 100):
+        return {"error": "duty must be 0-100"}, 400
+    if not isinstance(duration_s, (int, float)) or duration_s <= 0:
+        return {"error": "duration_s must be > 0"}, 400
+
+    _fan_groups[group_name].set_override(duty, duration_s)
+    return {"ok": True}
+
+
+@app.route("/override/cancel", methods=["POST"])
+def cancel_override(request):
+    body = request.json
+    group_name = body.get("group")
+    if group_name not in _fan_groups:
+        return {"error": "unknown group %s" % group_name}, 400
+    _fan_groups[group_name].cancel_override()
+    return {"ok": True}
+
+
+@app.route("/", methods=["GET"])
+def index(request):
+    return Response(body=_PAGE_HTML, headers={"Content-Type": "text/html"})
+
+
+# Minimal single-page UI: polls /status every 2s, posts overrides.
+# Deliberately no external CSS/JS dependencies so it works standalone on the LAN.
+_PAGE_HTML = """<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rack Fan Controller</title>
+<style>
+  body { font-family: sans-serif; max-width: 480px; margin: 2em auto; padding: 0 1em; }
+  .group { border: 1px solid #ccc; border-radius: 8px; padding: 1em; margin-bottom: 1em; }
+  .group h2 { margin-top: 0; }
+  .row { display: flex; justify-content: space-between; margin: 0.3em 0; }
+  button { padding: 0.4em 0.8em; margin-right: 0.3em; }
+  .override-badge { color: #b45309; font-weight: bold; }
+</style>
+</head>
+<body>
+<h1>Rack Fan Controller</h1>
+<div class="row"><span>Rack temp</span><span id="rack_temp">-</span></div>
+<div class="row"><span>Outside temp</span><span id="outside_temp">-</span></div>
+
+<div id="groups"></div>
+
+<script>
+async function fetchStatus() {
+  const res = await fetch('/status');
+  const data = await res.json();
+  document.getElementById('rack_temp').textContent = data.rack_temp.toFixed(1) + ' C';
+  document.getElementById('outside_temp').textContent = data.outside_temp.toFixed(1) + ' C';
+
+  const container = document.getElementById('groups');
+  container.innerHTML = '';
+  for (const [name, g] of Object.entries(data.groups)) {
+    const div = document.createElement('div');
+    div.className = 'group';
+    const overrideText = g.override
+      ? `<span class="override-badge">OVERRIDE ${g.override.duty}% (${g.override.expires_in_s}s left)</span>`
+      : 'auto';
+    div.innerHTML = `
+      <h2>${name}</h2>
+      <div class="row"><span>Duty</span><span>${g.duty}%</span></div>
+      <div class="row"><span>RPM</span><span>${g.rpm.join(' / ')}</span></div>
+      <div class="row"><span>Mode</span><span>${overrideText}</span></div>
+      <div>
+        <button onclick="setOverride('${name}', 0)">0%</button>
+        <button onclick="setOverride('${name}', 50)">50%</button>
+        <button onclick="setOverride('${name}', 100)">100%</button>
+        <button onclick="cancelOverride('${name}')">Auto</button>
+      </div>
+    `;
+    container.appendChild(div);
+  }
+}
+
+async function setOverride(group, duty) {
+  await fetch('/override', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({group, duty, duration_s: 600})
+  });
+  fetchStatus();
+}
+
+async function cancelOverride(group) {
+  await fetch('/override/cancel', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({group})
+  });
+  fetchStatus();
+}
+
+fetchStatus();
+setInterval(fetchStatus, 2000);
+</script>
+</body>
+</html>
+"""

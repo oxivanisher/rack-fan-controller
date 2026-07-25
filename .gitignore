@@ -1,0 +1,12 @@
+# Real config with actual WiFi/MQTT credentials + sensor ROM codes — never commit this
+config.json
+
+# Vendored third-party libs (install separately, see src/lib/README.md)
+src/lib/*.py
+!src/lib/README.md
+
+# Python / editor cruft
+__pycache__/
+*.pyc
+.vscode/
+.DS_Store
