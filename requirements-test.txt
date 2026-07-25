@@ -1,0 +1,5 @@
+# Host-side test dependencies only — NOT installed on the Pico.
+# Install into a venv (see README.md "Testing"), never system-wide:
+#   .venv\Scripts\pip install -r requirements-test.txt
+pytest==9.1.1
+microdot==2.6.2
