@@ -61,11 +61,18 @@ re-deriving the design decisions below.
 
 ## Control logic (v1 scope)
 
-- Single control sensor ("rack" zone) drives a linear ramp:
-  - `temp <= min_temp` → `min_duty`
+- Single control sensor ("rack" zone) drives a linear ramp, computed once as
+  a 0..1 position between `min_temp` and `max_temp` (not an absolute duty):
+  - `temp <= min_temp` → position `0`
   - `min_temp < temp < max_temp` → linear interpolation
-  - `temp >= max_temp` → `max_duty`
-- Hysteresis band prevents duty cycle chatter when temp sits near a boundary.
+  - `temp >= max_temp` → position `1`
+- Each fan group maps that shared position onto its **own** `min_duty`/
+  `max_duty` range, set directly on its `fan_groups.<name>` entry in
+  `config.json` (required per group — no global default) — e.g. exhaust can
+  idle quieter than intake, or hit 100% sooner. `curve` only holds the shared
+  `min_temp`/`max_temp`/`hysteresis` (see `config.example.json`).
+- Hysteresis band prevents duty cycle chatter when temp sits near a boundary
+  (shared across groups, since it's driven by the same temp signal).
 - "Outside" sensor is **informational only** in v1 — logged/published, not
   fed into the control loop. Rationale: don't add complexity (e.g.
   rack-vs-ambient delta modulating max duty) before there's real logged data
@@ -164,8 +171,9 @@ watch which live temp reading moves to tell rack from outside, paste the
 codes into `config.json`, reboot.
 
 If `sensors.rack`'s ROM isn't currently matched, the control loop has no
-temperature signal to act on and fails safe to `max_duty` (loud is a safer
-failure mode than silently underventilating) — see `main.py`.
+temperature signal to act on and fails safe to each group's own `max_duty`
+(loud is a safer failure mode than silently underventilating) — see
+`main.py`.
 
 ## Testing
 

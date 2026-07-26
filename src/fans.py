@@ -42,12 +42,15 @@ class TachCounter:
 
 
 class FanGroup:
-    def __init__(self, name, pwm_pin, tach_pins):
+    def __init__(self, name, pwm_pin, tach_pins, min_duty=0, max_duty=100):
         self.name = name
         self._pwm = PWM(Pin(pwm_pin))
         self._pwm.freq(PWM_FREQ_HZ)
         self._tachs = [TachCounter(p) for p in tach_pins]
         self._last_tach_read_ms = time.ticks_ms()
+
+        self.min_duty = min_duty
+        self.max_duty = max_duty
 
         self.override = None  # {"duty": int, "expires_at_ms": int} or None
         self.current_duty = 0
@@ -89,40 +92,49 @@ class FanGroup:
         return [t.rpm_since_last(elapsed_s) for t in self._tachs]
 
 
-def compute_curve_duty(temp, curve_cfg, last_duty, last_temp_for_hysteresis):
-    """Linear ramp with hysteresis.
+def compute_curve_fraction(temp, curve_cfg, last_fraction, last_temp_for_hysteresis):
+    """Linear ramp with hysteresis, expressed as a 0..1 position along
+    [min_temp, max_temp] rather than an absolute duty. Kept duty-range-free
+    so every fan group can map the same curve position onto its own
+    min_duty/max_duty (see duty_for_fraction) without each needing its own
+    hysteresis/temp-tracking state.
 
-    Returns (new_duty, new_temp_for_hysteresis). Caller stores the second
-    value and passes it back in next time, so the hysteresis comparison is
-    against the last temperature that actually caused a duty change (not
-    just the last raw reading).
+    Returns (new_fraction, new_temp_for_hysteresis). Caller stores the
+    second value and passes it back in next time, so the hysteresis
+    comparison is against the last temperature that actually caused a
+    change (not just the last raw reading).
     """
     min_t, max_t = curve_cfg["min_temp"], curve_cfg["max_temp"]
-    min_d, max_d = curve_cfg["min_duty"], curve_cfg["max_duty"]
     hysteresis = curve_cfg["hysteresis"]
 
     if last_temp_for_hysteresis is not None:
         if abs(temp - last_temp_for_hysteresis) < hysteresis:
-            return last_duty, last_temp_for_hysteresis  # no change, inside deadband
+            return last_fraction, last_temp_for_hysteresis  # no change, inside deadband
 
     if temp <= min_t:
-        duty = min_d
+        fraction = 0.0
     elif temp >= max_t:
-        duty = max_d
+        fraction = 1.0
     else:
-        frac = (temp - min_t) / (max_t - min_t)
-        duty = min_d + frac * (max_d - min_d)
+        fraction = (temp - min_t) / (max_t - min_t)
 
-    return duty, temp
+    return fraction, temp
 
 
-def compute_duty(control_temp, curve_cfg, last_duty, last_temp_for_hysteresis):
-    """compute_curve_duty, plus the fail-safe for a missing control reading.
+def compute_fraction(control_temp, curve_cfg, last_fraction, last_temp_for_hysteresis):
+    """compute_curve_fraction, plus the fail-safe for a missing control
+    reading.
 
     control_temp is None when the configured control sensor's ROM hasn't
     been matched on the bus yet (see sensors.py) — there's no signal to
-    ramp against, so fail safe to max_duty rather than guessing quietly.
+    ramp against, so fail safe to fraction 1.0 (each group's own max_duty)
+    rather than guessing quietly.
     """
     if control_temp is None:
-        return curve_cfg["max_duty"], None
-    return compute_curve_duty(control_temp, curve_cfg, last_duty, last_temp_for_hysteresis)
+        return 1.0, None
+    return compute_curve_fraction(control_temp, curve_cfg, last_fraction, last_temp_for_hysteresis)
+
+
+def duty_for_fraction(fraction, min_duty, max_duty):
+    """Maps a 0..1 curve position onto a fan group's own duty range."""
+    return min_duty + fraction * (max_duty - min_duty)

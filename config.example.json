@@ -28,18 +28,20 @@
   "curve": {
     "min_temp": 30,
     "max_temp": 35,
-    "min_duty": 20,
-    "max_duty": 100,
     "hysteresis": 0.5
   },
   "fan_groups": {
     "intake": {
       "pwm_pin": 21,
-      "tach_pins": [20, 19, 18]
+      "tach_pins": [20, 19, 18],
+      "min_duty": 20,
+      "max_duty": 100
     },
     "exhaust": {
       "pwm_pin": 28,
-      "tach_pins": [27, 26, 22]
+      "tach_pins": [27, 26, 22],
+      "min_duty": 30,
+      "max_duty": 90
     }
   },
   "override_defaults": {

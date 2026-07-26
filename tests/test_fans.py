@@ -3,12 +3,13 @@ import pytest
 from fans import (
     FanGroup,
     TachCounter,
-    compute_curve_duty,
-    compute_duty,
+    compute_curve_fraction,
+    compute_fraction,
+    duty_for_fraction,
     duty_percent_to_u16,
 )
 
-CURVE = {"min_temp": 30, "max_temp": 35, "min_duty": 20, "max_duty": 100, "hysteresis": 0.5}
+CURVE = {"min_temp": 30, "max_temp": 35, "hysteresis": 0.5}
 
 
 def test_duty_percent_to_u16_clamps_and_scales():
@@ -19,57 +20,82 @@ def test_duty_percent_to_u16_clamps_and_scales():
     assert duty_percent_to_u16(50) == int(0.5 * 65535)
 
 
-def test_curve_below_min_temp_uses_min_duty():
-    duty, _ = compute_curve_duty(20, CURVE, last_duty=20, last_temp_for_hysteresis=None)
-    assert duty == CURVE["min_duty"]
+def test_curve_below_min_temp_uses_fraction_zero():
+    fraction, _ = compute_curve_fraction(20, CURVE, last_fraction=0.4, last_temp_for_hysteresis=None)
+    assert fraction == 0.0
 
 
-def test_curve_exactly_at_min_temp_uses_min_duty():
+def test_curve_exactly_at_min_temp_uses_fraction_zero():
     # README contract is "<=", not "<" — exercise the boundary itself, not
     # just an interior point, so a boundary-operator typo gets caught.
-    duty, _ = compute_curve_duty(CURVE["min_temp"], CURVE, last_duty=20, last_temp_for_hysteresis=None)
-    assert duty == CURVE["min_duty"]
+    fraction, _ = compute_curve_fraction(
+        CURVE["min_temp"], CURVE, last_fraction=0.4, last_temp_for_hysteresis=None
+    )
+    assert fraction == 0.0
 
 
-def test_curve_above_max_temp_uses_max_duty():
-    duty, _ = compute_curve_duty(40, CURVE, last_duty=20, last_temp_for_hysteresis=None)
-    assert duty == CURVE["max_duty"]
+def test_curve_above_max_temp_uses_fraction_one():
+    fraction, _ = compute_curve_fraction(40, CURVE, last_fraction=0.4, last_temp_for_hysteresis=None)
+    assert fraction == 1.0
 
 
-def test_curve_exactly_at_max_temp_uses_max_duty():
-    duty, _ = compute_curve_duty(CURVE["max_temp"], CURVE, last_duty=20, last_temp_for_hysteresis=None)
-    assert duty == CURVE["max_duty"]
+def test_curve_exactly_at_max_temp_uses_fraction_one():
+    fraction, _ = compute_curve_fraction(
+        CURVE["max_temp"], CURVE, last_fraction=0.4, last_temp_for_hysteresis=None
+    )
+    assert fraction == 1.0
 
 
 def test_curve_linear_interpolation_midpoint():
-    duty, temp = compute_curve_duty(32.5, CURVE, last_duty=20, last_temp_for_hysteresis=None)
-    assert duty == pytest.approx(60)  # halfway between min_duty=20 and max_duty=100
+    fraction, temp = compute_curve_fraction(32.5, CURVE, last_fraction=0.4, last_temp_for_hysteresis=None)
+    assert fraction == pytest.approx(0.5)  # halfway between min_temp=30 and max_temp=35
     assert temp == 32.5
 
 
-def test_curve_hysteresis_holds_last_duty_inside_deadband():
+def test_curve_hysteresis_holds_last_fraction_inside_deadband():
     # last_temp_for_hysteresis=32.3, hysteresis=0.5 -> deadband is [31.8, 32.8)
-    duty, temp = compute_curve_duty(32.5, CURVE, last_duty=20, last_temp_for_hysteresis=32.3)
-    assert duty == 20
+    fraction, temp = compute_curve_fraction(32.5, CURVE, last_fraction=0.4, last_temp_for_hysteresis=32.3)
+    assert fraction == 0.4
     assert temp == 32.3
 
 
 def test_curve_hysteresis_releases_outside_deadband():
-    duty, temp = compute_curve_duty(33.0, CURVE, last_duty=20, last_temp_for_hysteresis=32.3)
-    assert duty != 20
+    fraction, temp = compute_curve_fraction(33.0, CURVE, last_fraction=0.4, last_temp_for_hysteresis=32.3)
+    assert fraction != 0.4
     assert temp == 33.0
 
 
-def test_compute_duty_fails_safe_to_max_duty_when_control_temp_missing():
-    duty, hysteresis_temp = compute_duty(None, CURVE, last_duty=20, last_temp_for_hysteresis=31.0)
-    assert duty == CURVE["max_duty"]
+def test_compute_fraction_fails_safe_to_one_when_control_temp_missing():
+    fraction, hysteresis_temp = compute_fraction(None, CURVE, last_fraction=0.4, last_temp_for_hysteresis=31.0)
+    assert fraction == 1.0
     assert hysteresis_temp is None
 
 
-def test_compute_duty_delegates_to_curve_when_control_temp_present():
-    duty, temp = compute_duty(20, CURVE, last_duty=20, last_temp_for_hysteresis=None)
-    assert duty == CURVE["min_duty"]
+def test_compute_fraction_delegates_to_curve_when_control_temp_present():
+    fraction, temp = compute_fraction(20, CURVE, last_fraction=0.4, last_temp_for_hysteresis=None)
+    assert fraction == 0.0
     assert temp == 20
+
+
+def test_duty_for_fraction_maps_onto_groups_own_range():
+    assert duty_for_fraction(0.0, min_duty=20, max_duty=100) == 20
+    assert duty_for_fraction(1.0, min_duty=20, max_duty=100) == 100
+    assert duty_for_fraction(0.5, min_duty=20, max_duty=100) == pytest.approx(60)
+
+    # Different group, same fraction -> its own range, not the other group's.
+    assert duty_for_fraction(0.5, min_duty=10, max_duty=50) == pytest.approx(30)
+
+
+def test_fan_group_defaults_to_full_duty_range():
+    fg = FanGroup("intake", pwm_pin=15, tach_pins=[14, 13])
+    assert fg.min_duty == 0
+    assert fg.max_duty == 100
+
+
+def test_fan_group_stores_its_own_duty_range():
+    fg = FanGroup("intake", pwm_pin=15, tach_pins=[14, 13], min_duty=30, max_duty=80)
+    assert fg.min_duty == 30
+    assert fg.max_duty == 80
 
 
 def test_fan_group_set_duty_percent_updates_pwm_and_state():

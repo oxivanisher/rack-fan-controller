@@ -10,7 +10,7 @@ from machine import WDT
 import config as config_mod
 import boot
 from sensors import TempSensors
-from fans import FanGroup, compute_duty
+from fans import FanGroup, compute_fraction, duty_for_fraction
 import mqtt_client
 import web
 
@@ -56,8 +56,11 @@ def main():
     #    network. Closes the window where fans could sit at 0% during init.
     fan_groups = {}
     for name, gcfg in cfg["fan_groups"].items():
-        fg = FanGroup(name, gcfg["pwm_pin"], gcfg["tach_pins"])
-        fg.set_duty_percent(cfg["curve"]["min_duty"])
+        fg = FanGroup(
+            name, gcfg["pwm_pin"], gcfg["tach_pins"],
+            min_duty=gcfg["min_duty"], max_duty=gcfg["max_duty"],
+        )
+        fg.set_duty_percent(gcfg["min_duty"])
         fan_groups[name] = fg
 
     # 2. WiFi (best-effort, non-blocking beyond its own timeout)
@@ -89,9 +92,10 @@ def main():
     # 6. Hardware watchdog — resets the board if the loop below ever hangs.
     wdt = WDT(timeout=cfg.get("watchdog_timeout_ms", 8000))
 
-    # Hysteresis state, one per fan group's driving sensor (they all use the
-    # same control_sensor in v1, so one shared value is fine).
-    last_duty = cfg["curve"]["min_duty"]
+    # Hysteresis state: one shared curve position (0..1), since all groups
+    # ramp off the same control_sensor. Each group maps this fraction onto
+    # its own min_duty/max_duty (see duty_for_fraction below).
+    last_fraction = 0.0
     last_temp_for_hysteresis = None
 
     poll_interval_s = cfg.get("poll_interval_s", 5)
@@ -103,16 +107,16 @@ def main():
             temps = sensors.read_all()
             control_temp = temps.get(cfg["control_sensor"])
 
-            new_duty, last_temp_for_hysteresis = compute_duty(
-                control_temp, cfg["curve"], last_duty, last_temp_for_hysteresis
+            new_fraction, last_temp_for_hysteresis = compute_fraction(
+                control_temp, cfg["curve"], last_fraction, last_temp_for_hysteresis
             )
-            last_duty = new_duty
+            last_fraction = new_fraction
 
             for name, fg in fan_groups.items():
                 if fg.override_active():
                     fg.set_duty_percent(fg.override["duty"])
                 else:
-                    fg.set_duty_percent(new_duty)
+                    fg.set_duty_percent(duty_for_fraction(new_fraction, fg.min_duty, fg.max_duty))
 
             status = build_status(cfg, temps, sensors, fan_groups)
             status_holder["status"] = status

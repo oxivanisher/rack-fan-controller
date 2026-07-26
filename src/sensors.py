@@ -34,8 +34,8 @@ class TempSensors:
             reporting its last good value for up to this long before it's
             treated as actually missing. 1-Wire buses in a fan-noisy rack
             drop the occasional read; without this, a single bad read would
-            flash '-' on the status page and trip compute_duty's fail-safe
-            to max_duty.
+            flash '-' on the status page and trip compute_fraction's
+            fail-safe to each group's own max_duty.
         """
         self._ow = onewire.OneWire(Pin(onewire_pin))
         self._ds = ds18x20.DS18X20(self._ow)
