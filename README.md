@@ -206,6 +206,23 @@ Setup (uses the project's `.venv`, not the system Python):
 .venv\Scripts\python -m pytest
 ```
 
+## 3D Printed Files
+
+- [Rack fan controller case](https://www.printables.com/model/1791451-rack-fan-controller-case) —
+  enclosure for the Pico W + wiring.
+- [PWM 3/4-pin plug adaptor for breadboards](https://www.printables.com/model/389619-pwm-3-or-4-pin-plug-adaptor-for-breadboards) —
+  adapts standard PC fan connectors to 0.1" pin headers.
+
+## Gallery
+
+| Perfboard (front) | Perfboard (back) |
+|---|---|
+| ![Soldered perfboard, front — Pico W, resistors, header connectors](docs/images/pico-perfboard-front.webp) | ![Soldered perfboard, back — point-to-point wiring](docs/images/pico-perfboard-back.webp) |
+
+| Case installed in rack | Status web UI |
+|---|---|
+| ![3D printed case installed in the rack, with labeled Intake/Exhaust fan connectors](docs/images/case-installed-in-rack.webp) | ![Status page showing rack/outside temp, per-group duty/RPM, and detected sensors](docs/images/status-web-ui.webp) |
+
 ## Not yet built / open follow-ups
 
 - [ ] Actual duty% numbers for `min_duty`/`max_duty` — to be determined
