@@ -93,23 +93,29 @@ class FanGroup:
 
 
 def compute_curve_fraction(temp, curve_cfg, last_fraction, last_temp_for_hysteresis):
-    """Linear ramp with hysteresis, expressed as a 0..1 position along
-    [min_temp, max_temp] rather than an absolute duty. Kept duty-range-free
-    so every fan group can map the same curve position onto its own
-    min_duty/max_duty (see duty_for_fraction) without each needing its own
-    hysteresis/temp-tracking state.
+    """Linear ramp with asymmetric hysteresis, expressed as a 0..1 position
+    along [min_temp, max_temp] rather than an absolute duty. Kept
+    duty-range-free so every fan group can map the same curve position onto
+    its own min_duty/max_duty (see duty_for_fraction) without each needing
+    its own hysteresis/temp-tracking state.
+
+    Rises track temp immediately (no deadband) so ramping up stays a smooth
+    curve instead of stair-stepping. Only drops are deadbanded: duty won't
+    ease down until temp has fallen `hysteresis` below the point that last
+    drove an increase. That's where chatter actually comes from — noise
+    wobbling right at a threshold, causing fans to dip and immediately rev
+    back up — and gating only the downward direction kills it without
+    lagging the upward response. Trade-off: fans stay a bit louder than
+    strictly necessary while cooling, since a drop needs a genuine
+    `hysteresis`-sized temp fall, not just a momentary dip.
 
     Returns (new_fraction, new_temp_for_hysteresis). Caller stores the
-    second value and passes it back in next time, so the hysteresis
+    second value and passes it back in next time, so the deadband
     comparison is against the last temperature that actually caused a
     change (not just the last raw reading).
     """
     min_t, max_t = curve_cfg["min_temp"], curve_cfg["max_temp"]
     hysteresis = curve_cfg["hysteresis"]
-
-    if last_temp_for_hysteresis is not None:
-        if abs(temp - last_temp_for_hysteresis) < hysteresis:
-            return last_fraction, last_temp_for_hysteresis  # no change, inside deadband
 
     if temp <= min_t:
         fraction = 0.0
@@ -117,6 +123,10 @@ def compute_curve_fraction(temp, curve_cfg, last_fraction, last_temp_for_hystere
         fraction = 1.0
     else:
         fraction = (temp - min_t) / (max_t - min_t)
+
+    if last_temp_for_hysteresis is not None and fraction < last_fraction:
+        if last_temp_for_hysteresis - temp < hysteresis:
+            return last_fraction, last_temp_for_hysteresis  # not enough drop yet
 
     return fraction, temp
 

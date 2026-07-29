@@ -52,17 +52,25 @@ def test_curve_linear_interpolation_midpoint():
     assert temp == 32.5
 
 
-def test_curve_hysteresis_holds_last_fraction_inside_deadband():
-    # last_temp_for_hysteresis=32.3, hysteresis=0.5 -> deadband is [31.8, 32.8)
-    fraction, temp = compute_curve_fraction(32.5, CURVE, last_fraction=0.4, last_temp_for_hysteresis=32.3)
-    assert fraction == 0.4
-    assert temp == 32.3
+def test_curve_hysteresis_tracks_rises_immediately():
+    # Rising is never deadbanded, even by a tiny amount, so duty ramps
+    # smoothly instead of stair-stepping.
+    fraction, temp = compute_curve_fraction(32.31, CURVE, last_fraction=0.4, last_temp_for_hysteresis=32.3)
+    assert fraction == pytest.approx((32.31 - 30) / 5)
+    assert temp == 32.31
 
 
-def test_curve_hysteresis_releases_outside_deadband():
-    fraction, temp = compute_curve_fraction(33.0, CURVE, last_fraction=0.4, last_temp_for_hysteresis=32.3)
-    assert fraction != 0.4
-    assert temp == 33.0
+def test_curve_hysteresis_holds_last_fraction_on_small_drop():
+    # last_temp_for_hysteresis=32.8, hysteresis=0.5 -> needs to fall below 32.3 to release
+    fraction, temp = compute_curve_fraction(32.5, CURVE, last_fraction=0.56, last_temp_for_hysteresis=32.8)
+    assert fraction == 0.56
+    assert temp == 32.8
+
+
+def test_curve_hysteresis_releases_drop_outside_deadband():
+    fraction, temp = compute_curve_fraction(32.2, CURVE, last_fraction=0.56, last_temp_for_hysteresis=32.8)
+    assert fraction != 0.56
+    assert temp == 32.2
 
 
 def test_compute_fraction_fails_safe_to_one_when_control_temp_missing():

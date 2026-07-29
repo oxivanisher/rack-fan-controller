@@ -71,8 +71,14 @@ re-deriving the design decisions below.
   `config.json` (required per group — no global default) — e.g. exhaust can
   idle quieter than intake, or hit 100% sooner. `curve` only holds the shared
   `min_temp`/`max_temp`/`hysteresis` (see `config.example.json`).
-- Hysteresis band prevents duty cycle chatter when temp sits near a boundary
-  (shared across groups, since it's driven by the same temp signal).
+- Hysteresis is asymmetric: duty tracks rising temp immediately (smooth
+  ramp, no stair-stepping), but only eases back down once temp has fallen
+  `hysteresis` below the point that last drove an increase — that's what
+  prevents chatter (fans dipping and immediately revving back up) when temp
+  sits near a boundary. Shared across groups, since it's driven by the same
+  temp signal. `hysteresis` is set in `config.json`'s `curve` section (see
+  `config.example.json`) — larger values delay drops longer but don't
+  affect how quickly duty rises.
 - "Outside" sensor is **informational only** in v1 — logged/published, not
   fed into the control loop. Rationale: don't add complexity (e.g.
   rack-vs-ambient delta modulating max duty) before there's real logged data
