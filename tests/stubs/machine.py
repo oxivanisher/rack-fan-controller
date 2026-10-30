@@ -8,6 +8,14 @@ real hardware.
 """
 
 
+PWRON_RESET = 1
+WDT_RESET = 3
+
+
+def reset_cause():
+    return PWRON_RESET
+
+
 class Pin:
     IN = "IN"
     OUT = "OUT"

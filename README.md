@@ -104,7 +104,8 @@ src/
   config.py       # Loads/validates config.json
   sensors.py      # DS18B20 wrapper: scan bus, map ROM codes -> zone names
   fans.py         # FanGroup class: PWM out, tach counting, override state
-  mqtt_client.py  # Thin wrapper over umqtt.simple with reconnect + non-blocking publish
+  mqtt_client.py  # Thin wrapper over umqtt.simple with reconnect + socket timeouts
+  dns_lookup.py   # Time-limited DNS lookup for the broker hostname
   web.py          # microdot-based status page + override API
   lib/            # third-party deps go here (see "Dependencies" below) — NOT vendored in this repo
 config.example.json
@@ -116,9 +117,29 @@ docs/
 ### Design principle: control loop must survive network/MQTT failure
 
 Fan control (sensor read → compute duty → set PWM) runs independently of
-MQTT publish and the web server. A failed publish is caught and logged, never
-allowed to block or delay the next control loop iteration. A hardware
-watchdog timer (`machine.WDT`) resets the board if the main loop ever hangs.
+MQTT publish and the web server. A failed publish is caught and logged, and
+every network operation has a short timeout, so an outage costs the control
+loop at most a few seconds per reconnect attempt (at most one every
+`reconnect_min_interval_s`). A hardware watchdog timer (`machine.WDT`) resets
+the board if the main loop ever hangs; network outages must not trigger it.
+
+During an outage the fans keep following the curve. WiFi is rejoined from the
+control loop and MQTT reconnects by itself once the network is back.
+`reset_cause` in `GET /status` and the MQTT payload shows why the board last
+booted (`watchdog`, `power_on` or `unknown`); `machine.reset()` also reports
+as `watchdog` on this port.
+
+### Broker hostname and DNS
+
+`mqtt.broker` can be a hostname or an IP. Hostnames are resolved by
+`dns_lookup.py`, not `getaddrinfo` — that one ignores socket timeouts and can
+block long enough to trip the watchdog when DNS is down. The last IP that
+resolved is kept in memory and used while DNS is unavailable, so a DNS outage
+doesn't take down MQTT while the broker itself is reachable.
+
+Limitations: only the first DNS server from DHCP is queried, `.local` (mDNS)
+names aren't supported, and the remembered IP doesn't survive a reboot (MQTT
+stays offline until DNS returns; fan control is unaffected).
 
 ### Boot safety
 
@@ -128,7 +149,7 @@ could sit at 0% during sensor/WiFi initialisation.
 
 ## Dependencies (not vendored — install onto the Pico separately)
 
-- [`umqtt.simple`](https://github.com/micropython/micropython-lib/tree/master/micropython/umqtt.simple) — MQTT client
+- [`umqtt.simple`](https://github.com/micropython/micropython-lib/tree/master/micropython/umqtt.simple) — MQTT client. Needs a version whose `connect()` takes `timeout` (added November 2024); with an older one MQTT never connects and the console logs `MQTT connect failed` with a `TypeError`
 - [`microdot`](https://github.com/miguelgrinberg/microdot) — lightweight web framework for the status page/API
 - `onewire` + `ds18x20` — usually included in standard MicroPython firmware builds; if not, vendor from micropython-lib
 

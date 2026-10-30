@@ -5,6 +5,7 @@ design rationale before modifying this file.
 
 import time
 import _thread
+import machine
 from machine import WDT
 
 import config as config_mod
@@ -15,7 +16,16 @@ import mqtt_client
 import web
 
 
-def build_status(cfg, temps, sensors, fan_groups):
+def reset_cause_name(cause):
+    # On rp2 machine.reset() also reports as WDT_RESET, not just a real hang.
+    if cause == machine.WDT_RESET:
+        return "watchdog"
+    if cause == machine.PWRON_RESET:
+        return "power_on"
+    return "unknown"
+
+
+def build_status(cfg, temps, sensors, fan_groups, reset_cause=None):
     groups_out = {}
     for name, fg in fan_groups.items():
         override = None
@@ -38,6 +48,8 @@ def build_status(cfg, temps, sensors, fan_groups):
         "rack_temp": temps.get(cfg["control_sensor"]),
         "outside_temp": temps.get("outside"),
         "groups": groups_out,
+        # Why the board last booted, so unexpected resets show up remotely.
+        "reset_cause": reset_cause,
         # {rom_str: celsius} for every DS18B20 seen on the bus, matched or
         # not — lets you read ROM codes + live temps off the status page
         # when the rack isn't physically reachable for a REPL. See
@@ -51,6 +63,7 @@ def build_status(cfg, temps, sensors, fan_groups):
 
 def main():
     cfg = config_mod.load("config.json")
+    reset_cause = reset_cause_name(machine.reset_cause())
 
     # 1. Bring up fan groups FIRST, at min_duty, before touching sensors or
     #    network. Closes the window where fans could sit at 0% during init.
@@ -64,8 +77,11 @@ def main():
         fan_groups[name] = fg
 
     # 2. WiFi (best-effort, non-blocking beyond its own timeout)
+    wlan = None
+    wifi_monitor = None
     if cfg.get("wifi", {}).get("ssid"):
-        boot.connect(cfg["wifi"]["ssid"], cfg["wifi"]["password"])
+        wlan = boot.connect(cfg["wifi"]["ssid"], cfg["wifi"]["password"])
+        wifi_monitor = boot.WifiMonitor(wlan, cfg["wifi"]["ssid"], cfg["wifi"]["password"])
 
     # 3. Sensors
     sensors = TempSensors(cfg["sensors"]["onewire_pin"], {
@@ -74,7 +90,7 @@ def main():
     }, stale_after_s=cfg["sensors"].get("stale_after_s", 30))
 
     # 4. MQTT publisher (lazy-connects on first publish attempt)
-    publisher = mqtt_client.StatusPublisher(cfg["mqtt"])
+    publisher = mqtt_client.StatusPublisher(cfg["mqtt"], wlan)
 
     # 5. Web server, on core 1, if enabled — keeps the control loop on core 0
     #    from ever being blocked by web request handling.
@@ -118,8 +134,15 @@ def main():
                 else:
                     fg.set_duty_percent(duty_for_fraction(new_fraction, fg.min_duty, fg.max_duty))
 
-            status = build_status(cfg, temps, sensors, fan_groups)
+            status = build_status(cfg, temps, sensors, fan_groups, reset_cause)
             status_holder["status"] = status
+
+            # Network work can use several seconds of the watchdog window
+            # even with its timeouts, so start it with a fresh one.
+            wdt.feed()
+
+            if wifi_monitor is not None:
+                wifi_monitor.check()
 
             # Best-effort publish; never allowed to raise past this point.
             publisher.try_publish(status)

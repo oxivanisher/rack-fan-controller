@@ -1,3 +1,5 @@
+import machine
+
 import main
 
 
@@ -69,6 +71,18 @@ def test_build_status_flags_configured_vs_unassigned_detected_sensors():
     assert by_rom["28-000001a2b3c4"]["configured"] is True
     assert by_rom["28-000001a2b3c4"]["temp"] == 32.4
     assert by_rom["28-unassigned0000"]["configured"] is False
+
+
+def test_build_status_includes_reset_cause():
+    status = main.build_status(CFG, {}, FakeSensors({}), {}, "watchdog")
+
+    assert status["reset_cause"] == "watchdog"
+
+
+def test_reset_cause_name():
+    assert main.reset_cause_name(machine.WDT_RESET) == "watchdog"
+    assert main.reset_cause_name(machine.PWRON_RESET) == "power_on"
+    assert main.reset_cause_name(99) == "unknown"
 
 
 def test_build_status_missing_control_temp_is_none_not_a_crash():

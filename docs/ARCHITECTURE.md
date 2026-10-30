@@ -13,10 +13,12 @@ every poll_interval_s:
        apply_pwm(group, duty)
        rpm = read_tach(group)          # both fans in group, individually
   3. Build status dict (temps, duties, rpms, override state)
-  4. Best-effort: publish status dict as MQTT JSON payload
-       (wrapped in try/except — failure here must never block step 1-3
-        on the next iteration)
-  5. Feed hardware watchdog
+  4. Feed hardware watchdog
+  5. If WiFi is down: non-blocking rejoin attempt (rate-limited)
+  6. Best-effort: publish status dict as MQTT JSON payload
+       (skipped while WiFi is down; every socket operation has a timeout —
+        failure here must never block step 1-3 on the next iteration)
+  7. Feed hardware watchdog
 ```
 
 The web server (`web.py`, microdot) runs as a second concern reading/writing
@@ -59,6 +61,15 @@ def try_publish(payload: dict) -> bool:
 Reconnection attempts should be rate-limited (e.g. don't attempt a fresh
 MQTT reconnect more than once every N seconds) so a persistently-down broker
 doesn't waste control-loop cycles retrying every 5 seconds forever.
+
+Catching exceptions isn't enough, because a blocked call never raises and the
+watchdog resets the board first. The worst case for one reconnect attempt:
+
+```
+DNS lookup (dns_lookup.py)   1s   (not getaddrinfo: ~7s per dead DNS server)
+TCP connect                  2s
+CONNACK                      2s
+```
 
 ## MQTT topic
 

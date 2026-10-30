@@ -112,6 +112,7 @@ _PAGE_HTML = """<!DOCTYPE html>
 <h1>Rack Fan Controller</h1>
 <div class="row"><span>Rack temp</span><span id="rack_temp">-</span></div>
 <div class="row"><span>Outside temp</span><span id="outside_temp">-</span></div>
+<div class="row"><span>Last reset</span><span id="reset_cause">-</span></div>
 
 <div id="groups"></div>
 
@@ -137,6 +138,7 @@ async function fetchStatus() {
   const data = await res.json();
   document.getElementById('rack_temp').textContent = fmtTemp(data.rack_temp);
   document.getElementById('outside_temp').textContent = fmtTemp(data.outside_temp);
+  document.getElementById('reset_cause').textContent = data.reset_cause || '-';
 
   const sensorsBody = document.getElementById('detected_sensors');
   sensorsBody.innerHTML = '';
